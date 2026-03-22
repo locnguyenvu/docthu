@@ -2,6 +2,14 @@
 
 **docthu** is a template-based structured data extraction library for Python. It lets you describe the format of a message once — using a plain-text or HTML template with embedded variable placeholders — and then automatically extract structured data from any message that follows the same format. No regex maintenance, no hardcoded field selectors, no code changes when templates evolve.
 
+## Demo
+
+[![Watch the demo](https://img.youtube.com/vi/TS8todTxwOk/maxresdefault.jpg)](https://youtu.be/TS8todTxwOk)
+
+Load a real `.eml` file into the app, select spans of text in the rendered email and name them as template variables, then run Test Extraction to see the parsed JSON output live.
+
+**[Try the live demo](https://docthu-deixxjekexnpdbnypqc9jr.streamlit.app/)** — no installation needed.
+
 ## Problem
 
 Banks and financial institutions send transactional notification emails in a consistent, recurring format. These emails contain critical structured data — transaction amounts, account numbers, dates, beneficiary names, reference codes — but buried inside prose text or HTML layouts. Automating the extraction of this data today typically requires:
@@ -148,7 +156,7 @@ Every bank sends transfer confirmation emails in a fixed format per notification
 - Low-balance or overdraft alerts
 - Interest credit/debit notices
 
-Supported banks in Vietnam (tested): Vietcombank, VIB, VietinBank (DCVfm), BIDV, and any bank with consistently formatted notification emails.
+Supported banks in Vietnam (tested): Vietcombank, VIB, VietinBank, etc., and any bank with consistently formatted notification emails.
 
 ### Finance and accounting automation
 
@@ -200,6 +208,3 @@ uv run pytest tests/ -v
 
 MIT
 
----
-
-*This repository was built with [Claude Code](https://claude.ai/claude-code).*
