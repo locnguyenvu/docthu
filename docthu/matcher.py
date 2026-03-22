@@ -1,0 +1,143 @@
+"""
+Compile a token list into a regex pattern, match it against a message,
+and build the nested output dict.
+"""
+
+from __future__ import annotations
+
+import re
+from typing import Any
+
+from .coercion import CoercionError, coerce  # noqa: F401 — re-exported for convenience
+from .tokenizer import AssignmentToken, LiteralToken, VariableToken
+
+# Public so __init__.py can import it
+__all__ = ["MatchError", "compile_tokens", "extract"]
+
+
+class MatchError(Exception):
+    pass
+
+
+# ---------------------------------------------------------------------------
+# Regex compilation
+# ---------------------------------------------------------------------------
+
+# In flexible mode, any run of whitespace in a literal becomes \s+
+_WS_RUN = re.compile(r"\s+")
+
+
+def _literal_to_pattern(text: str, flexible: bool) -> str:
+    escaped = re.escape(text)
+    if flexible:
+        # Replace escaped whitespace sequences with \s+
+        escaped = re.sub(r"(?:\\[ \t\r\n])+", r"\\s+", escaped)
+    return escaped
+
+
+def _var_group_name(dotted_name: str) -> str:
+    """Convert dotted variable name to a valid regex group name."""
+    return dotted_name.replace(".", "__")
+
+
+def compile_tokens(
+    tokens: list[LiteralToken | VariableToken | AssignmentToken],
+    flexible: bool = True,
+) -> re.Pattern:
+    """
+    Convert a token list to a compiled regex.
+
+    Variables become named capture groups; literals become escaped text.
+    AssignmentTokens are ignored (they don't contribute to the pattern).
+    """
+    # Collect only the tokens that produce regex output (literals + variables)
+    active = [t for t in tokens if not isinstance(t, AssignmentToken)]
+
+    parts: list[str] = []
+    for i, token in enumerate(active):
+        if isinstance(token, LiteralToken):
+            parts.append(_literal_to_pattern(token.text, flexible))
+        elif isinstance(token, VariableToken):
+            group = _var_group_name(token.name)
+            # Last active token that is a variable gets greedy match
+            is_last_var = not any(isinstance(t, VariableToken) for t in active[i + 1 :])
+            # Also check if anything follows after this variable
+            has_following_literal = any(
+                isinstance(t, LiteralToken) and t.text.strip() for t in active[i + 1 :]
+            )
+            if is_last_var and not has_following_literal:
+                quantifier = r"[\s\S]+"  # greedy, consumes rest
+            else:
+                quantifier = r"[\s\S]+?"  # non-greedy
+
+            parts.append(f"(?P<{group}>{quantifier})")
+
+    pattern = "".join(parts)
+    try:
+        return re.compile(pattern, re.DOTALL)
+    except re.error as exc:
+        raise ValueError(f"Failed to compile template regex: {exc}") from exc
+
+
+# ---------------------------------------------------------------------------
+# Nested dict builder
+# ---------------------------------------------------------------------------
+
+
+def _set_nested(d: dict, dotted_key: str, value: Any) -> None:
+    keys = dotted_key.split(".")
+    for k in keys[:-1]:
+        d = d.setdefault(k, {})
+    d[keys[-1]] = value
+
+
+# ---------------------------------------------------------------------------
+# Main extraction function
+# ---------------------------------------------------------------------------
+
+
+def extract(
+    tokens: list[LiteralToken | VariableToken | AssignmentToken],
+    message: str,
+    *,
+    flexible: bool = True,
+) -> dict:
+    """
+    Match *message* against the compiled token pattern and return a nested dict.
+
+    Raises MatchError if the message doesn't conform to the template structure.
+    Raises CoercionError if a typed variable cannot be converted.
+    """
+    pattern = compile_tokens(tokens, flexible=flexible)
+
+    # Normalise message whitespace in flexible mode before matching
+    msg = message.strip()
+    if flexible:
+        msg = _WS_RUN.sub(" ", msg)
+        msg = msg + " "  # ensure trailing \s+ in the pattern can always match
+
+    m = pattern.search(msg)
+    if m is None:
+        raise MatchError(
+            "Message does not match the template. "
+            "Check that the template's static text matches the message."
+        )
+
+    result: dict = {}
+
+    # Process captured variables
+    var_tokens = {
+        _var_group_name(t.name): t for t in tokens if isinstance(t, VariableToken)
+    }
+    for group_name, raw_value in m.groupdict().items():
+        token = var_tokens[group_name]
+        value = coerce(token.name, raw_value.strip(), token.type)
+        _set_nested(result, token.name, value)
+
+    # Process static assignments
+    for token in tokens:
+        if isinstance(token, AssignmentToken):
+            coerced = coerce(token.name, token.value, "str")
+            _set_nested(result, token.name, coerced)
+
+    return result

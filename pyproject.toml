@@ -1,0 +1,25 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "docthu"
+version = "0.1.0"
+description = "Template-based structured data extraction from emails and text messages"
+requires-python = ">=3.10"
+dependencies = ["streamlit>=1.35"]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+docthu = "docthu.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+include = ["docthu"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"docthu/components/email_selector/index.html" = "docthu/components/email_selector/index.html"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
