@@ -27,11 +27,18 @@ class MatchError(Exception):
 _WS_RUN = re.compile(r"\s+")
 
 
-def _literal_to_pattern(text: str, flexible: bool) -> str:
+def _literal_to_pattern(text: str, flexible: bool, is_tail: bool = False) -> str:
     escaped = re.escape(text)
     if flexible:
         # Replace escaped whitespace sequences with \s+
         escaped = re.sub(r"(?:\\[ \t\r\n])+", r"\\s+", escaped)
+        if is_tail:
+            # The trailing whitespace of the last suffix literal must be
+            # optional: in HTML emails the character immediately after a literal
+            # (e.g. a dot) may be a tag like <br> with no preceding whitespace.
+            # extract() already appends a space to the message, so \s* still
+            # anchors purely-whitespace suffixes correctly.
+            escaped = re.sub(r"\\s\+$", r"\\s*", escaped)
     return escaped
 
 
@@ -53,10 +60,17 @@ def compile_tokens(
     # Collect only the tokens that produce regex output (literals + variables)
     active = [t for t in tokens if not isinstance(t, AssignmentToken)]
 
+    # Index of the last LiteralToken in active (used to mark the tail literal)
+    last_literal_idx = max(
+        (i for i, t in enumerate(active) if isinstance(t, LiteralToken)),
+        default=-1,
+    )
+
     parts: list[str] = []
     for i, token in enumerate(active):
         if isinstance(token, LiteralToken):
-            parts.append(_literal_to_pattern(token.text, flexible))
+            is_tail = i == last_literal_idx
+            parts.append(_literal_to_pattern(token.text, flexible, is_tail=is_tail))
         elif isinstance(token, VariableToken):
             group = _var_group_name(token.name)
             # Last active token that is a variable gets greedy match

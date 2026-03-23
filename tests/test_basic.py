@@ -212,3 +212,17 @@ def test_template_class_reuse():
 def test_unknown_type_raises():
     with pytest.raises(TemplateParseError, match="Unknown type"):
         parse("{{ x:uuid }}", "anything")
+
+
+# ---------------------------------------------------------------------------
+# 11. Trailing dot+newline anchor does not overshoot when no whitespace
+#     follows the dot in the actual message (issue #1)
+# ---------------------------------------------------------------------------
+
+def test_trailing_dot_newline_no_whitespace_after_dot():
+    """Variable before '.\n' must not greedily consume HTML content after the dot."""
+    template = "vào ngày {{ occurred_at:date }}.\n"
+    # Simulates an HTML email where '.<br>' has no whitespace between dot and tag
+    message = "vào ngày 22/03/2026.<br> <br> Regards, on 22/03/2026."
+    result = parse(template, message, flexible=True)
+    assert result["occurred_at"] == date(2026, 3, 22)
