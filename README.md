@@ -163,9 +163,9 @@ Amount: {{ amount:float }}
 
 variables(template)
 # [
-#   {"name": "date",             "type": "str",   "execution": "extract"},
-#   {"name": "amount",           "type": "float", "execution": "extract"},
-#   {"name": "sender.bank_name", "type": "str",   "execution": "static_assign", "value": "Vietcombank"},
+#   {"name": "date",             "type": "str",   "kind": "extract"},
+#   {"name": "amount",           "type": "float", "kind": "extract"},
+#   {"name": "sender.bank_name", "type": "str",   "kind": "static_assign", "value": "Vietcombank"},
 # ]
 ```
 

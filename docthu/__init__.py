@@ -57,9 +57,9 @@ class Template:
         - ``name``      — dotted variable name
         - ``type``      — coercion type (``"str"``, ``"int"``, ``"float"``,
           ``"date"``, ``"datetime"``)
-        - ``execution`` — ``"extract"`` for ``{{ var }}`` tokens or
+        - ``kind``  — ``"extract"`` for ``{{ var }}`` tokens or
           ``"static_assign"`` for ``{% var = 'value' %}`` tokens
-        - ``value``     — present only when ``execution == "static_assign"``
+        - ``value`` — present only when ``kind == "static_assign"``
 
         Items are returned in template (document) order.
         """
@@ -81,9 +81,9 @@ def _variables(tokens) -> list[dict]:
     result = []
     for token in tokens:
         if isinstance(token, VariableToken):
-            result.append({"name": token.name, "type": token.type, "execution": "extract"})
+            result.append({"name": token.name, "type": token.type, "kind": "extract"})
         elif isinstance(token, AssignmentToken):
-            result.append({"name": token.name, "type": "str", "execution": "static_assign", "value": token.value})
+            result.append({"name": token.name, "type": "str", "kind": "static_assign", "value": token.value})
     return result
 
 
