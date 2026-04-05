@@ -7,7 +7,7 @@ from datetime import date
 
 import pytest
 
-from docthu import CoercionError, MatchError, Template, TemplateParseError, parse
+from docthu import CoercionError, MatchError, Template, TemplateParseError, parse, variables
 
 
 # ---------------------------------------------------------------------------
@@ -226,3 +226,55 @@ def test_trailing_dot_newline_no_whitespace_after_dot():
     message = "vào ngày 22/03/2026.<br> <br> Regards, on 22/03/2026."
     result = parse(template, message, flexible=True)
     assert result["occurred_at"] == date(2026, 3, 22)
+
+
+# ---------------------------------------------------------------------------
+# 12. variables() — export template variable schema
+# ---------------------------------------------------------------------------
+
+def test_variables_extract_only():
+    tpl = "Date: {{ date }} Amount: {{ amount:float }}"
+    result = variables(tpl)
+    assert result == [
+        {"name": "date", "type": "str", "execution": "extract"},
+        {"name": "amount", "type": "float", "execution": "extract"},
+    ]
+
+
+def test_variables_static_assign_only():
+    tpl = "{% sender.bank_name = 'Vietcombank' %}\nHello"
+    result = variables(tpl)
+    assert result == [
+        {"name": "sender.bank_name", "type": "str", "execution": "static_assign", "value": "Vietcombank"},
+    ]
+
+
+def test_variables_mixed():
+    tpl = "Date: {{ date }}\n{% sender.bank_name = 'Vietcombank' %}\nAmount: {{ amount:float }}"
+    result = variables(tpl)
+    assert result == [
+        {"name": "date", "type": "str", "execution": "extract"},
+        {"name": "sender.bank_name", "type": "str", "execution": "static_assign", "value": "Vietcombank"},
+        {"name": "amount", "type": "float", "execution": "extract"},
+    ]
+
+
+def test_variables_document_order():
+    tpl = "{{ b }} {{ a }}"
+    result = variables(tpl)
+    assert [v["name"] for v in result] == ["b", "a"]
+
+
+def test_variables_on_template_class():
+    tpl = Template("Date: {{ date }}\n{% sender.bank_name = 'Vietcombank' %}")
+    result = tpl.variables()
+    assert result == [
+        {"name": "date", "type": "str", "execution": "extract"},
+        {"name": "sender.bank_name", "type": "str", "execution": "static_assign", "value": "Vietcombank"},
+    ]
+
+
+def test_variables_result_is_json_serialisable():
+    import json
+    tpl = "{{ date }} {% bank = 'VCB' %}"
+    assert json.dumps(variables(tpl))  # must not raise

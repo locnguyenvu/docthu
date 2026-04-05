@@ -55,14 +55,18 @@ uv sync --dev
 ## Python API
 
 ```python
-from docthu import parse, Template
+from docthu import parse, Template, variables
 
-# One-shot
+# One-shot extraction
 result = parse(template_str, message_str)
 
 # Reusable (template compiled once, matched many times)
 tpl = Template(template_str)
 result = tpl.match(message_str)
+
+# Inspect the variable schema of a template
+schema = variables(template_str)   # standalone, one-shot
+schema = tpl.variables()           # or on a compiled Template
 ```
 
 ### Template syntax
@@ -143,6 +147,38 @@ except CoercionError as e:
     # Extracted value couldn't be coerced to the declared type
     print(e.var_name, e.raw_value, e.target_type)
 ```
+
+### Exporting the variable schema
+
+`variables()` returns the list of variables declared in a template as JSON-serialisable dicts, without running an extraction. Useful for generating UI schemas, validating template coverage, or storing template metadata.
+
+```python
+from docthu import variables, Template
+
+template = """\
+Date: {{ date }}
+Amount: {{ amount:float }}
+{% sender.bank_name = 'Vietcombank' %}
+"""
+
+variables(template)
+# [
+#   {"name": "date",             "type": "str",   "execution": "extract"},
+#   {"name": "amount",           "type": "float", "execution": "extract"},
+#   {"name": "sender.bank_name", "type": "str",   "execution": "static_assign", "value": "Vietcombank"},
+# ]
+```
+
+Each entry contains:
+
+| Field | Values | Description |
+|---|---|---|
+| `name` | dotted path string | Variable name as declared in the template |
+| `type` | `str`, `int`, `float`, `date`, `datetime` | Coercion type |
+| `execution` | `extract` \| `static_assign` | `extract` for `{{ var }}` tokens; `static_assign` for `{% var = 'value' %}` tokens |
+| `value` | string | Present only when `execution == "static_assign"` — the literal assigned value |
+
+Items are returned in document order. The result is always `json.dumps()`-safe.
 
 ## Use cases
 
