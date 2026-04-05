@@ -236,8 +236,8 @@ def test_variables_extract_only():
     tpl = "Date: {{ date }} Amount: {{ amount:float }}"
     result = variables(tpl)
     assert result == [
-        {"name": "date", "type": "str", "execution": "extract"},
-        {"name": "amount", "type": "float", "execution": "extract"},
+        {"name": "date", "type": "str", "kind": "extract"},
+        {"name": "amount", "type": "float", "kind": "extract"},
     ]
 
 
@@ -245,7 +245,7 @@ def test_variables_static_assign_only():
     tpl = "{% sender.bank_name = 'Vietcombank' %}\nHello"
     result = variables(tpl)
     assert result == [
-        {"name": "sender.bank_name", "type": "str", "execution": "static_assign", "value": "Vietcombank"},
+        {"name": "sender.bank_name", "type": "str", "kind": "static_assign", "value": "Vietcombank"},
     ]
 
 
@@ -253,9 +253,9 @@ def test_variables_mixed():
     tpl = "Date: {{ date }}\n{% sender.bank_name = 'Vietcombank' %}\nAmount: {{ amount:float }}"
     result = variables(tpl)
     assert result == [
-        {"name": "date", "type": "str", "execution": "extract"},
-        {"name": "sender.bank_name", "type": "str", "execution": "static_assign", "value": "Vietcombank"},
-        {"name": "amount", "type": "float", "execution": "extract"},
+        {"name": "date", "type": "str", "kind": "extract"},
+        {"name": "sender.bank_name", "type": "str", "kind": "static_assign", "value": "Vietcombank"},
+        {"name": "amount", "type": "float", "kind": "extract"},
     ]
 
 
@@ -269,8 +269,8 @@ def test_variables_on_template_class():
     tpl = Template("Date: {{ date }}\n{% sender.bank_name = 'Vietcombank' %}")
     result = tpl.variables()
     assert result == [
-        {"name": "date", "type": "str", "execution": "extract"},
-        {"name": "sender.bank_name", "type": "str", "execution": "static_assign", "value": "Vietcombank"},
+        {"name": "date", "type": "str", "kind": "extract"},
+        {"name": "sender.bank_name", "type": "str", "kind": "static_assign", "value": "Vietcombank"},
     ]
 
 
