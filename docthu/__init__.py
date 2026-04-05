@@ -16,11 +16,12 @@ from __future__ import annotations
 
 from .coercion import CoercionError
 from .matcher import MatchError, extract
-from .tokenizer import TemplateParseError, tokenize
+from .tokenizer import AssignmentToken, TemplateParseError, VariableToken, tokenize
 
 __all__ = [
     "Template",
     "parse",
+    "variables",
     "TemplateParseError",
     "MatchError",
     "CoercionError",
@@ -47,6 +48,23 @@ class Template:
         self._tokens = tokenize(template)
         self._flexible = flexible
 
+    def variables(self) -> list[dict]:
+        """
+        Return the variables defined in this template as a list of dicts.
+
+        Each dict has the keys:
+
+        - ``name``      — dotted variable name
+        - ``type``      — coercion type (``"str"``, ``"int"``, ``"float"``,
+          ``"date"``, ``"datetime"``)
+        - ``execution`` — ``"extract"`` for ``{{ var }}`` tokens or
+          ``"static_assign"`` for ``{% var = 'value' %}`` tokens
+        - ``value``     — present only when ``execution == "static_assign"``
+
+        Items are returned in template (document) order.
+        """
+        return _variables(self._tokens)
+
     def match(self, message: str) -> dict:
         """
         Extract variables from *message* using this template.
@@ -57,6 +75,25 @@ class Template:
         Raises :class:`CoercionError` if a typed variable can't be converted.
         """
         return extract(self._tokens, message, flexible=self._flexible)
+
+
+def _variables(tokens) -> list[dict]:
+    result = []
+    for token in tokens:
+        if isinstance(token, VariableToken):
+            result.append({"name": token.name, "type": token.type, "execution": "extract"})
+        elif isinstance(token, AssignmentToken):
+            result.append({"name": token.name, "type": "str", "execution": "static_assign", "value": token.value})
+    return result
+
+
+def variables(template: str) -> list[dict]:
+    """
+    Return the variables defined in *template* as a list of dicts.
+
+    Convenience wrapper around ``Template.variables()`` for one-shot use.
+    """
+    return _variables(tokenize(template))
 
 
 def parse(template: str, message: str, *, flexible: bool = True) -> dict:
