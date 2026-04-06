@@ -278,3 +278,78 @@ def test_variables_result_is_json_serialisable():
     import json
     tpl = "{{ date }} {% bank = 'VCB' %}"
     assert json.dumps(variables(tpl))  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# 13. Assignment type annotations
+# ---------------------------------------------------------------------------
+
+def test_assignment_type_annotation_float():
+    tpl = "{% amount:float = '100.50' %}\nDate: {{ date }}"
+    result = variables(tpl)
+    assert result[0] == {"name": "amount", "type": "float", "kind": "static_assign", "value": "100.50"}
+
+
+def test_assignment_type_annotation_int():
+    tpl = "{% count:int = '42' %}\nHello"
+    result = variables(tpl)
+    assert result[0] == {"name": "count", "type": "int", "kind": "static_assign", "value": "42"}
+
+
+def test_assignment_type_annotation_coerced_in_match():
+    tpl = "{% amount:float = '100.50' %}\nHello"
+    result = parse(tpl, "Hello")
+    assert result["amount"] == pytest.approx(100.50)
+
+
+def test_assignment_unknown_type_raises():
+    with pytest.raises(TemplateParseError, match="Unknown type"):
+        parse("{% x:uuid = 'val' %}", "anything")
+
+
+# ---------------------------------------------------------------------------
+# 14. Non-string literals in assignments
+# ---------------------------------------------------------------------------
+
+def test_assignment_int_literal():
+    tpl = "{% count = 42 %}\nHello"
+    result = parse(tpl, "Hello")
+    assert result["count"] == 42
+
+
+def test_assignment_float_literal():
+    tpl = "{% rate = 0.08 %}\nHello"
+    result = parse(tpl, "Hello")
+    assert result["rate"] == pytest.approx(0.08)
+
+
+def test_assignment_bool_literal_stored_as_string():
+    tpl = "{% flag = true %}\nHello"
+    result = parse(tpl, "Hello")
+    assert result["flag"] == "true"
+
+
+def test_assignment_int_literal_type_in_variables():
+    tpl = "{% count = 42 %}"
+    result = variables(tpl)
+    assert result[0] == {"name": "count", "type": "int", "kind": "static_assign", "value": "42"}
+
+
+def test_assignment_float_literal_type_in_variables():
+    tpl = "{% rate = 3.14 %}"
+    result = variables(tpl)
+    assert result[0] == {"name": "rate", "type": "float", "kind": "static_assign", "value": "3.14"}
+
+
+# ---------------------------------------------------------------------------
+# 15. Invalid assignment syntax raises TemplateParseError
+# ---------------------------------------------------------------------------
+
+def test_invalid_block_raises():
+    with pytest.raises(TemplateParseError, match="Invalid assignment syntax"):
+        parse("{% invalid syntax here %}\nDate: {{ date }}", "Date: 2024-01-01")
+
+
+def test_block_missing_equals_raises():
+    with pytest.raises(TemplateParseError, match="Invalid assignment syntax"):
+        parse("{% no_equals 'value' %}\nHello", "Hello")

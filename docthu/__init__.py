@@ -83,7 +83,7 @@ def _variables(tokens) -> list[dict]:
         if isinstance(token, VariableToken):
             result.append({"name": token.name, "type": token.type, "kind": "extract"})
         elif isinstance(token, AssignmentToken):
-            result.append({"name": token.name, "type": "str", "kind": "static_assign", "value": token.value})
+            result.append({"name": token.name, "type": token.type, "kind": "static_assign", "value": token.value})
     return result
 
 

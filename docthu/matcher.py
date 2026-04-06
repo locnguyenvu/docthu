@@ -151,7 +151,7 @@ def extract(
     # Process static assignments
     for token in tokens:
         if isinstance(token, AssignmentToken):
-            coerced = coerce(token.name, token.value, "str")
+            coerced = coerce(token.name, token.value, token.type)
             _set_nested(result, token.name, coerced)
 
     return result
