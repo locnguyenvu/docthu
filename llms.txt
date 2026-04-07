@@ -1,0 +1,173 @@
+# docthu
+
+docthu is a template-based structured data extraction library for Python. Describe the format of a message once using a plain-text or HTML template with embedded variable placeholders, then automatically extract structured data from any message that follows that format.
+
+## Installation
+
+```bash
+uv add git+https://github.com/locnguyenvu/docthu.git
+```
+
+## Quick start
+
+```python
+from docthu import parse, Template, variables
+
+# One-shot extraction
+result = parse(template_str, message_str)
+
+# Compile once, reuse many times (preferred for loops)
+tpl = Template(template_str)
+result = tpl.match(message_str)
+
+# Inspect variable schema without extracting
+schema = variables(template_str)
+schema = tpl.variables()          # equivalent, on a compiled Template
+```
+
+## Public API
+
+### parse(template, message, *, flexible=True) -> dict
+
+Tokenises `template` and matches it against `message` in one call.
+
+- `template` (str): template string
+- `message` (str): message to extract from
+- `flexible` (bool, default True): ignore whitespace differences between template and message
+
+Returns a (possibly nested) dict of extracted values.
+Raises TemplateParseError, MatchError, CoercionError.
+
+### Template(template, *, flexible=True)
+
+Compiled template. Parse once, call .match() many times.
+
+- `Template.match(message) -> dict` — extract from message
+- `Template.variables() -> list[dict]` — return variable schema (same as standalone variables())
+
+### variables(template) -> list[dict]
+
+Return variable schema without extracting. Each item:
+
+```python
+{"name": "amount", "type": "float", "kind": "extract"}
+{"name": "bank",   "type": "str",   "kind": "static_assign", "value": "Vietcombank"}
+```
+
+Fields: name (dotted path), type (str/int/float/date/datetime), kind (extract|static_assign), value (only when kind==static_assign).
+
+### Exceptions
+
+```python
+from docthu import TemplateParseError, MatchError, CoercionError
+
+try:
+    result = parse(template, message)
+except TemplateParseError:
+    # Invalid template: unknown type, adjacent variables, bad {% %} block
+    pass
+except MatchError:
+    # Message doesn't match the template's static structure
+    pass
+except CoercionError as e:
+    # e.var_name, e.raw_value, e.target_type
+    pass
+```
+
+## Template syntax
+
+### Variable placeholders
+
+```
+{{ var }}           # extract as string
+{{ var:int }}       # extract and coerce to int
+{{ var:float }}     # extract and coerce to float
+{{ var:date }}      # extract and coerce to datetime.date
+{{ var:datetime }}  # extract and coerce to datetime.datetime
+{{ a.b.c }}         # nested output: {"a": {"b": {"c": value}}}
+```
+
+### Static assignments (no extraction)
+
+```
+{% var = 'literal string' %}
+{% var:int = 42 %}
+{% var:float = 3.14 %}
+```
+
+Adds a hard-coded field to the result dict. Supports single-quoted strings, int, float, and true/false literals.
+
+### Constraints
+
+- Two `{{ }}` variables cannot be adjacent — at least one literal character must separate them.
+- Type annotations must be one of: str, int, float, date, datetime.
+
+## Type coercion
+
+- str: identity, returned as-is
+- int: strips thousand separators (, and .), converts to int
+- float: auto-detects locale — "1.327,45" → 1327.45, "1,327.45" → 1327.45
+- date: tries dd/mm/yyyy, yyyy-mm-dd, dd-mm-yyyy, dd.mm.yyyy, mm/dd/yyyy, yyyy/mm/dd
+- datetime: same date formats + optional HH:MM:SS or HH:MM time component
+
+date → datetime.date object; datetime → datetime.datetime object.
+
+## End-to-end example
+
+Template file (bank_transfer.txt):
+
+```
+Transaction successful.
+Date: {{ date:date }}
+From: {{ sender.account_number }} ({{ sender.bank }})
+To: {{ receiver.account_number }} - {{ receiver.name }}
+Amount: {{ amount:float }} {{ currency }}
+Note: {{ narration }}
+{% type = 'transfer' %}
+```
+
+Message:
+
+```
+Transaction successful.
+Date: 17/03/2026
+From: 1234567890 (Vietcombank)
+To: 9876543210 - NGUYEN VAN A
+Amount: 5,000,000 VND
+Note: school fees
+```
+
+Code:
+
+```python
+from docthu import Template
+
+tpl = Template(open("bank_transfer.txt").read())
+result = tpl.match(message_body)
+```
+
+Result:
+
+```json
+{
+  "date": "2026-03-17",
+  "sender": {"account_number": "1234567890", "bank": "Vietcombank"},
+  "receiver": {"account_number": "9876543210", "name": "NGUYEN VAN A"},
+  "amount": 5000000.0,
+  "currency": "VND",
+  "narration": "school fees",
+  "type": "transfer"
+}
+```
+
+## Using with HTML email templates
+
+docthu works with both plain-text and HTML templates. For HTML emails, pass the raw HTML (or parsed text content) as the template. The `flexible=True` default handles whitespace differences introduced by HTML rendering.
+
+Typical workflow with the bundled template builder UI:
+
+```bash
+uv run docthu   # opens Streamlit app
+```
+
+Upload a .eml file, select text spans to define variables, download the resulting template, then use it with Template or parse().
