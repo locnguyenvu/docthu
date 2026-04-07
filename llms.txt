@@ -27,13 +27,14 @@ schema = tpl.variables()          # equivalent, on a compiled Template
 
 ## Public API
 
-### parse(template, message, *, flexible=True) -> dict
+### parse(template, message, *, flexible=True, stop_on_filled=None) -> dict
 
 Tokenises `template` and matches it against `message` in one call.
 
 - `template` (str): template string
 - `message` (str): message to extract from
 - `flexible` (bool, default True): ignore whitespace differences between template and message
+- `stop_on_filled` (list[str] | None, default None): stop matching as soon as all listed variables are captured; see Early exit section below
 
 Returns a (possibly nested) dict of extracted values.
 Raises TemplateParseError, MatchError, CoercionError.
@@ -42,7 +43,7 @@ Raises TemplateParseError, MatchError, CoercionError.
 
 Compiled template. Parse once, call .match() many times.
 
-- `Template.match(message) -> dict` — extract from message
+- `Template.match(message, *, stop_on_filled=None) -> dict` — extract from message; see Early exit section
 - `Template.variables() -> list[dict]` — return variable schema (same as standalone variables())
 
 ### variables(template) -> list[dict]
@@ -158,6 +159,19 @@ Result:
   "narration": "school fees",
   "type": "transfer"
 }
+```
+
+## Early exit (stop_on_filled)
+
+Pass `stop_on_filled` to stop matching as soon as a declared set of variables is captured. The engine truncates the template at the rightmost listed variable (by template order) and compiles a shorter regex.
+
+- List order does not matter — engine cuts at the rightmost by template position.
+- All listed names must exist in the template (raises ValueError otherwise).
+- Useful for bilingual emails where the same data appears twice — declare only the variables you need from the first section.
+
+```python
+# Only capture amount and date; skip the Vietnamese duplicate section
+result = tpl.match(email_body, stop_on_filled=["amount", "date"])
 ```
 
 ## Using with HTML email templates
