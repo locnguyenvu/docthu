@@ -52,7 +52,7 @@ cd docthu
 uv sync --dev
 ```
 
-## Python API
+## Quick start
 
 ```python
 from docthu import parse, Template, variables
@@ -60,125 +60,15 @@ from docthu import parse, Template, variables
 # One-shot extraction
 result = parse(template_str, message_str)
 
-# Reusable (template compiled once, matched many times)
+# Compile once, match many times (preferred for loops)
 tpl = Template(template_str)
 result = tpl.match(message_str)
 
-# Inspect the variable schema of a template
-schema = variables(template_str)   # standalone, one-shot
-schema = tpl.variables()           # or on a compiled Template
+# Inspect the variable schema without extracting
+schema = variables(template_str)
 ```
 
-### Template syntax
-
-| Syntax | Meaning |
-|---|---|
-| `{{ var }}` | Extract value as string |
-| `{{ var:int }}` | Extract and coerce to `int` |
-| `{{ var:float }}` | Extract and coerce to `float` |
-| `{{ var:date }}` | Extract and coerce to `datetime.date` |
-| `{{ var:datetime }}` | Extract and coerce to `datetime.datetime` |
-| `{{ a.b.c }}` | Nested output: `{"a": {"b": {"c": value}}}` |
-| `{% var = 'literal' %}` | Static assignment — no extraction, direct output |
-
-### Example
-
-Template:
-
-```
-Transaction successful.
-Date: {{ date:date }}
-From: {{ sender.account_number }} ({{ sender.bank }})
-To: {{ receiver.account_number }} - {{ receiver.name }}
-Amount: {{ amount:float }} {{ currency }}
-Note: {{ narration }}
-{% type = 'transfer' %}
-```
-
-Message:
-
-```
-Transaction successful.
-Date: 17/03/2026
-From: 1234567890 (Vietcombank)
-To: 9876543210 - NGUYEN VAN A
-Amount: 5,000,000 VND
-Note: school fees
-```
-
-Result:
-
-```json
-{
-  "date": "2026-03-17",
-  "sender": { "account_number": "1234567890", "bank": "Vietcombank" },
-  "receiver": { "account_number": "9876543210", "name": "NGUYEN VAN A" },
-  "amount": 5000000.0,
-  "currency": "VND",
-  "narration": "school fees",
-  "type": "transfer"
-}
-```
-
-### Type coercion
-
-| Type | Behaviour |
-|---|---|
-| `str` | Identity — returned as-is |
-| `int` | Strips thousand separators (`,` and `.`), converts to int |
-| `float` | Auto-detects locale: `1.327,45` → `1327.45`, `1,327.45` → `1327.45` |
-| `date` | Tries common formats: `dd/mm/yyyy`, `yyyy-mm-dd`, `dd-mm-yyyy`, `dd.mm.yyyy`, etc. |
-| `datetime` | Same date formats plus time component |
-
-### Exceptions
-
-```python
-from docthu import TemplateParseError, MatchError, CoercionError
-
-try:
-    result = parse(template, message)
-except TemplateParseError as e:
-    # Bad template syntax (unknown type, adjacent variables, etc.)
-    ...
-except MatchError as e:
-    # Message doesn't match the template structure
-    ...
-except CoercionError as e:
-    # Extracted value couldn't be coerced to the declared type
-    print(e.var_name, e.raw_value, e.target_type)
-```
-
-### Exporting the variable schema
-
-`variables()` returns the list of variables declared in a template as JSON-serialisable dicts, without running an extraction. Useful for generating UI schemas, validating template coverage, or storing template metadata.
-
-```python
-from docthu import variables, Template
-
-template = """\
-Date: {{ date }}
-Amount: {{ amount:float }}
-{% sender.bank_name = 'Vietcombank' %}
-"""
-
-variables(template)
-# [
-#   {"name": "date",             "type": "str",   "kind": "extract"},
-#   {"name": "amount",           "type": "float", "kind": "extract"},
-#   {"name": "sender.bank_name", "type": "str",   "kind": "static_assign", "value": "Vietcombank"},
-# ]
-```
-
-Each entry contains:
-
-| Field | Values | Description |
-|---|---|---|
-| `name` | dotted path string | Variable name as declared in the template |
-| `type` | `str`, `int`, `float`, `date`, `datetime` | Coercion type |
-| `execution` | `extract` \| `static_assign` | `extract` for `{{ var }}` tokens; `static_assign` for `{% var = 'value' %}` tokens |
-| `value` | string | Present only when `execution == "static_assign"` — the literal assigned value |
-
-Items are returned in document order. The result is always `json.dumps()`-safe.
+For the full API — function signatures, template syntax, type coercion rules, exceptions, and the `variables()` schema — see **[docs/api.md](docs/api.md)**.
 
 ## Use cases
 
