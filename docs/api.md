@@ -9,7 +9,7 @@ from docthu import TemplateParseError, MatchError, CoercionError
 
 ---
 
-## `parse(template, message, *, flexible=True)`
+## `parse(template, message, *, flexible=True, stop_on_filled=None)`
 
 One-shot extraction. Tokenises `template` and matches it against `message`.
 
@@ -18,6 +18,7 @@ One-shot extraction. Tokenises `template` and matches it against `message`.
 | `template` | `str` | Template string |
 | `message` | `str` | Message to extract from |
 | `flexible` | `bool` | When `True` (default), whitespace differences between template and message are ignored |
+| `stop_on_filled` | `list[str] \| None` | List of variable names the caller requires. The engine stops matching as soon as all of them can be captured. See [Early exit](#early-exit-stop_on_filled) |
 
 **Returns** `dict` — a (possibly nested) dict of extracted values.
 
@@ -42,9 +43,14 @@ Compiled extraction template. Parse once, match many times.
 
 **Raises** `TemplateParseError` on invalid template syntax.
 
-### `Template.match(message)`
+### `Template.match(message, *, stop_on_filled=None)`
 
 Extract variables from `message`.
+
+| Parameter | Type | Description |
+|---|---|---|
+| `message` | `str` | Message to extract from |
+| `stop_on_filled` | `list[str] \| None` | See [Early exit](#early-exit-stop_on_filled) |
 
 **Returns** `dict`.  
 **Raises** `MatchError`, `CoercionError`.
@@ -161,6 +167,32 @@ except MatchError as e:
     print(e)
 except CoercionError as e:
     print(e.var_name, e.raw_value, e.target_type)
+```
+
+---
+
+## Early exit (`stop_on_filled`)
+
+Pass a list of variable names to `stop_on_filled` when you only need a subset of the template's variables. The engine finds the rightmost listed variable in template order, truncates the token list there, and compiles a shorter regex — skipping the rest of the template entirely.
+
+**Semantics:**
+- List order is irrelevant; only template position matters.
+- All names in the list must exist as variables in the template — raises `ValueError` otherwise.
+- All names must be captured after matching — raises `MatchError` otherwise.
+- Variables between the start and the cutoff that are not in the list are also captured (they anchor the regex) and appear in the result.
+
+**Typical use case — bilingual emails:**
+
+Many bank emails repeat the same data in two languages. The full template would cover both sections, but you only need the first:
+
+```python
+from docthu import Template
+
+# Template covers both English and Vietnamese sections
+tpl = Template(open("bank_bilingual.txt").read())
+
+# Stop as soon as amount and date are captured — skip the Vietnamese duplicate
+result = tpl.match(email_body, stop_on_filled=["amount", "date"])
 ```
 
 ---

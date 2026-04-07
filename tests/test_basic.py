@@ -353,3 +353,57 @@ def test_invalid_block_raises():
 def test_block_missing_equals_raises():
     with pytest.raises(TemplateParseError, match="Invalid assignment syntax"):
         parse("{% no_equals 'value' %}\nHello", "Hello")
+
+
+# ---------------------------------------------------------------------------
+# 16. stop_on_filled — early-exit extraction
+# ---------------------------------------------------------------------------
+
+def test_stop_on_filled_basic():
+    """Stops after capturing the declared variables; rest of template is skipped."""
+    template = "A: {{ a }} B: {{ b }} C: {{ c }} D: {{ d }}"
+    # Message intentionally breaks after field b — full template would fail
+    message = "A: alpha B: beta C: ---GARBAGE---"
+    result = parse(template, message, stop_on_filled=["a", "b"])
+    assert result["a"] == "alpha"
+    assert result["b"] == "beta"
+    assert "c" not in result
+    assert "d" not in result
+
+
+def test_stop_on_filled_order_independent():
+    """List order doesn't matter — engine always cuts at the rightmost by template position."""
+    template = "A: {{ a }} B: {{ b }} C: {{ c }}"
+    message = "A: alpha B: beta C: ---GARBAGE---"
+    r1 = parse(template, message, stop_on_filled=["b", "a"])
+    r2 = parse(template, message, stop_on_filled=["a", "b"])
+    assert r1 == r2
+    assert r1["a"] == "alpha"
+    assert r1["b"] == "beta"
+
+
+def test_stop_on_filled_all_variables():
+    """Declaring all variables is equivalent to a full extraction."""
+    template = "Name: {{ name }} Code: {{ code }}"
+    message = "Name: Alice Code: 001"
+    result_full = parse(template, message)
+    result_sof = parse(template, message, stop_on_filled=["name", "code"])
+    assert result_full == result_sof
+
+
+def test_stop_on_filled_unknown_variable_raises():
+    """Names not in the template raise ValueError at call time."""
+    template = "A: {{ a }} B: {{ b }}"
+    message = "A: x B: y"
+    with pytest.raises(ValueError, match="not found in template"):
+        parse(template, message, stop_on_filled=["nonexistent"])
+
+
+def test_stop_on_filled_template_class():
+    """Template.match() supports stop_on_filled the same way."""
+    tpl = Template("A: {{ a }} B: {{ b }} C: {{ c }}")
+    message = "A: alpha B: beta C: ---GARBAGE---"
+    result = tpl.match(message, stop_on_filled=["a", "b"])
+    assert result["a"] == "alpha"
+    assert result["b"] == "beta"
+    assert "c" not in result

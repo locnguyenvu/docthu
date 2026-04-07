@@ -115,13 +115,43 @@ def extract(
     message: str,
     *,
     flexible: bool = True,
+    stop_on_filled: list[str] | None = None,
 ) -> dict:
     """
     Match *message* against the compiled token pattern and return a nested dict.
 
     Raises MatchError if the message doesn't conform to the template structure.
     Raises CoercionError if a typed variable cannot be converted.
+
+    *stop_on_filled* — when given, the engine truncates the token list at the
+    rightmost variable in the set (by template order) and only matches up to
+    that point.  Every name in *stop_on_filled* must exist as a variable in the
+    template; raises ValueError otherwise.  After matching, raises MatchError if
+    any declared variable is absent from the result.
     """
+    if stop_on_filled:
+        req_names = set(stop_on_filled)
+        template_var_names = {t.name for t in tokens if isinstance(t, VariableToken)}
+        missing = req_names - template_var_names
+        if missing:
+            raise ValueError(
+                f"stop_on_filled variable(s) {sorted(missing)!r} not found in template"
+            )
+        last_idx = max(
+            i for i, t in enumerate(tokens)
+            if isinstance(t, VariableToken) and t.name in req_names
+        )
+        # Include the next LiteralToken after the cutoff (if any) so the last
+        # required variable gets a non-greedy quantifier instead of consuming
+        # the rest of the message.
+        anchor = next(
+            (t for t in tokens[last_idx + 1:] if isinstance(t, LiteralToken)),
+            None,
+        )
+        tokens = tokens[:last_idx + 1]
+        if anchor is not None:
+            tokens = [*tokens, anchor]
+
     pattern = compile_tokens(tokens, flexible=flexible)
 
     # Normalise message whitespace in flexible mode before matching
@@ -153,5 +183,17 @@ def extract(
         if isinstance(token, AssignmentToken):
             coerced = coerce(token.name, token.value, token.type)
             _set_nested(result, token.name, coerced)
+
+    # Guarantee all stop_on_filled variables are present in the result
+    if stop_on_filled:
+        for name in stop_on_filled:
+            node: Any = result
+            try:
+                for k in name.split("."):
+                    node = node[k]
+            except KeyError:
+                raise MatchError(
+                    f"Required variable '{name}' was not captured from the message."
+                )
 
     return result
