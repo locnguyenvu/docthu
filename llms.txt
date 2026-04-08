@@ -167,6 +167,7 @@ Pass `stop_on_filled` to stop matching as soon as a declared set of variables is
 
 - List order does not matter — engine cuts at the rightmost by template position.
 - All listed names must exist in the template (raises ValueError otherwise).
+- Static text after the stop point is not required to match the message — useful when the template was built from a sample but subsequent messages have different values in uncaptured fields.
 - Useful for bilingual emails where the same data appears twice — declare only the variables you need from the first section.
 
 ```python

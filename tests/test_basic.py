@@ -407,3 +407,23 @@ def test_stop_on_filled_template_class():
     assert result["a"] == "alpha"
     assert result["b"] == "beta"
     assert "c" not in result
+
+
+def test_stop_on_filled_trailing_static_differs():
+    """Static text after the stop point may differ from the template (issue #11)."""
+    template = (
+        "<table>\n"
+        "<tr><td>ID</td><td>{{receipt_number}}</td></tr>\n"
+        "<tr><td>Date</td><td>2026-01-01</td></tr>\n"
+        "<tr><td>Amount</td><td>100 USD</td></tr>\n"
+        "</table>"
+    )
+    message = (
+        "<table>\n"
+        "<tr><td>ID</td><td>ABC-999</td></tr>\n"
+        "<tr><td>Date</td><td>2026-04-07</td></tr>\n"
+        "<tr><td>Amount</td><td>194,579 VND</td></tr>\n"
+        "</table>"
+    )
+    result = parse(template, message, stop_on_filled=["receipt_number"])
+    assert result == {"receipt_number": "ABC-999"}
