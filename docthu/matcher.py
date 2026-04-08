@@ -152,7 +152,10 @@ def extract(
         )
         tokens = tokens[:last_idx + 1]
         if anchor is not None:
-            newline_pos = anchor.text.find("\n")
+            # Skip leading whitespace so an anchor like "\n\t</td>\n" doesn't
+            # reduce to just "\n" (which is useless as a bounding constraint).
+            lead_len = len(anchor.text) - len(anchor.text.lstrip())
+            newline_pos = anchor.text.find("\n", lead_len)
             anchor_text = (
                 anchor.text[: newline_pos + 1] if newline_pos >= 0 else anchor.text
             )
