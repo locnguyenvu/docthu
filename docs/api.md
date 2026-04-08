@@ -180,6 +180,7 @@ Pass a list of variable names to `stop_on_filled` when you only need a subset of
 - All names in the list must exist as variables in the template — raises `ValueError` otherwise.
 - All names must be captured after matching — raises `MatchError` otherwise.
 - Variables between the start and the cutoff that are not in the list are also captured (they anchor the regex) and appear in the result.
+- Static text **after** the stop point is ignored — the engine does not require it to match the message. This means the template can be created from a sample message even when subsequent messages have different values in uncaptured fields (different dates, amounts, bank names, etc.).
 
 **Typical use case — bilingual emails:**
 

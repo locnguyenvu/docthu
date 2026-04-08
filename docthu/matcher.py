@@ -141,16 +141,22 @@ def extract(
             i for i, t in enumerate(tokens)
             if isinstance(t, VariableToken) and t.name in req_names
         )
-        # Include the next LiteralToken after the cutoff (if any) so the last
-        # required variable gets a non-greedy quantifier instead of consuming
-        # the rest of the message.
+        # Include a short anchor after the cutoff so the last required variable
+        # gets a non-greedy quantifier instead of consuming the rest of the
+        # message.  Use only text up to the first newline so we don't require
+        # template-specific varying content (dates, amounts, …) that follows
+        # the stop point to be identical in every message.
         anchor = next(
             (t for t in tokens[last_idx + 1:] if isinstance(t, LiteralToken)),
             None,
         )
         tokens = tokens[:last_idx + 1]
         if anchor is not None:
-            tokens = [*tokens, anchor]
+            newline_pos = anchor.text.find("\n")
+            anchor_text = (
+                anchor.text[: newline_pos + 1] if newline_pos >= 0 else anchor.text
+            )
+            tokens = [*tokens, LiteralToken(anchor_text)]
 
     pattern = compile_tokens(tokens, flexible=flexible)
 
