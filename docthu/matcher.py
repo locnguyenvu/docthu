@@ -27,11 +27,16 @@ class MatchError(Exception):
 _WS_RUN = re.compile(r"\s+")
 
 
-def _literal_to_pattern(text: str, flexible: bool, is_tail: bool = False) -> str:
+def _literal_to_pattern(text: str, flexible: bool, is_tail: bool = False, is_head: bool = False) -> str:
     escaped = re.escape(text)
     if flexible:
         # Replace escaped whitespace sequences with \s+
         escaped = re.sub(r"(?:\\[ \t\r\n])+", r"\\s+", escaped)
+        if is_head:
+            # Leading whitespace of the first literal must be optional: the
+            # content may start directly with the first non-whitespace character
+            # (e.g. when a {% %} assignment tag precedes <html> in the template).
+            escaped = re.sub(r"^\\s\+", r"\\s*", escaped)
         if is_tail:
             # The trailing whitespace of the last suffix literal must be
             # optional: in HTML emails the character immediately after a literal
@@ -60,7 +65,11 @@ def compile_tokens(
     # Collect only the tokens that produce regex output (literals + variables)
     active = [t for t in tokens if not isinstance(t, AssignmentToken)]
 
-    # Index of the last LiteralToken in active (used to mark the tail literal)
+    # Index of the first and last LiteralToken in active
+    first_literal_idx = next(
+        (i for i, t in enumerate(active) if isinstance(t, LiteralToken)),
+        -1,
+    )
     last_literal_idx = max(
         (i for i, t in enumerate(active) if isinstance(t, LiteralToken)),
         default=-1,
@@ -69,8 +78,9 @@ def compile_tokens(
     parts: list[str] = []
     for i, token in enumerate(active):
         if isinstance(token, LiteralToken):
+            is_head = i == first_literal_idx
             is_tail = i == last_literal_idx
-            parts.append(_literal_to_pattern(token.text, flexible, is_tail=is_tail))
+            parts.append(_literal_to_pattern(token.text, flexible, is_tail=is_tail, is_head=is_head))
         elif isinstance(token, VariableToken):
             group = _var_group_name(token.name)
             # Last active token that is a variable gets greedy match
@@ -132,34 +142,38 @@ def extract(
     if stop_on_filled:
         req_names = set(stop_on_filled)
         template_var_names = {t.name for t in tokens if isinstance(t, VariableToken)}
-        missing = req_names - template_var_names
+        template_assign_names = {t.name for t in tokens if isinstance(t, AssignmentToken)}
+        missing = req_names - template_var_names - template_assign_names
         if missing:
             raise ValueError(
                 f"stop_on_filled variable(s) {sorted(missing)!r} not found in template"
             )
-        last_idx = max(
-            i for i, t in enumerate(tokens)
-            if isinstance(t, VariableToken) and t.name in req_names
-        )
-        # Include a short anchor after the cutoff so the last required variable
-        # gets a non-greedy quantifier instead of consuming the rest of the
-        # message.  Use only text up to the first newline so we don't require
-        # template-specific varying content (dates, amounts, …) that follows
-        # the stop point to be identical in every message.
-        anchor = next(
-            (t for t in tokens[last_idx + 1:] if isinstance(t, LiteralToken)),
-            None,
-        )
-        tokens = tokens[:last_idx + 1]
-        if anchor is not None:
-            # Skip leading whitespace so an anchor like "\n\t</td>\n" doesn't
-            # reduce to just "\n" (which is useless as a bounding constraint).
-            lead_len = len(anchor.text) - len(anchor.text.lstrip())
-            newline_pos = anchor.text.find("\n", lead_len)
-            anchor_text = (
-                anchor.text[: newline_pos + 1] if newline_pos >= 0 else anchor.text
+        # Assignment tokens are always filled; only extract variables determine cutoff
+        extract_req_names = req_names - template_assign_names
+        if extract_req_names:
+            last_idx = max(
+                i for i, t in enumerate(tokens)
+                if isinstance(t, VariableToken) and t.name in extract_req_names
             )
-            tokens = [*tokens, LiteralToken(anchor_text)]
+            # Include a short anchor after the cutoff so the last required variable
+            # gets a non-greedy quantifier instead of consuming the rest of the
+            # message.  Use only text up to the first newline so we don't require
+            # template-specific varying content (dates, amounts, …) that follows
+            # the stop point to be identical in every message.
+            anchor = next(
+                (t for t in tokens[last_idx + 1:] if isinstance(t, LiteralToken)),
+                None,
+            )
+            tokens = tokens[:last_idx + 1]
+            if anchor is not None:
+                # Skip leading whitespace so an anchor like "\n\t</td>\n" doesn't
+                # reduce to just "\n" (which is useless as a bounding constraint).
+                lead_len = len(anchor.text) - len(anchor.text.lstrip())
+                newline_pos = anchor.text.find("\n", lead_len)
+                anchor_text = (
+                    anchor.text[: newline_pos + 1] if newline_pos >= 0 else anchor.text
+                )
+                tokens = [*tokens, LiteralToken(anchor_text)]
 
     pattern = compile_tokens(tokens, flexible=flexible)
 
