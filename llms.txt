@@ -53,9 +53,14 @@ Return variable schema without extracting. Each item:
 ```python
 {"name": "amount", "type": "float", "kind": "extract"}
 {"name": "bank",   "type": "str",   "kind": "static_assign", "value": "Vietcombank"}
+# List blocks:
+{"name": "item", "type": "list", "kind": "list", "fields": [
+    {"name": "name", "type": "str", "kind": "extract"},
+    {"name": "price", "type": "float", "kind": "extract"},
+]}
 ```
 
-Fields: name (dotted path), type (str/int/float/date/datetime), kind (extract|static_assign), value (only when kind==static_assign).
+Fields: name (dotted path), type (str/int/float/date/datetime/list), kind (extract|static_assign|list), value (only when kind==static_assign), fields (only when kind==list — field descriptors for list items).
 
 ### Exceptions
 
@@ -98,10 +103,27 @@ except CoercionError as e:
 
 Adds a hard-coded field to the result dict. Supports single-quoted strings, int, float, and true/false literals.
 
+### List blocks (dynamic repeated content)
+
+```
+{% list: item %}
+- {{ item.name }} x{{ item.quantity:int }} - ${{ item.price:float }}
+{% end %}
+```
+
+- Extracts a variable-length list of structured items from repeated content (e.g. order line items).
+- `item` is the collection name — appears as a key in the result dict with a `list[dict]` value.
+- Variables inside the block must be prefixed with the collection name (`item.name`, `item.price`, etc.).
+- All coercion types are supported inside the block.
+- If no items are found, the collection is set to `[]`.
+- Nested list blocks raise `TemplateParseError`.
+- `stop_on_filled` cannot reference loop-body variables (raises `ValueError`).
+
 ### Constraints
 
 - Two `{{ }}` variables cannot be adjacent — at least one literal character must separate them.
 - Type annotations must be one of: str, int, float, date, datetime.
+- Nested `{% list: … %}` blocks are not supported.
 
 ## Type coercion
 

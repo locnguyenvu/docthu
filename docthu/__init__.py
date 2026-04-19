@@ -16,7 +16,14 @@ from __future__ import annotations
 
 from .coercion import CoercionError
 from .matcher import MatchError, extract
-from .tokenizer import AssignmentToken, TemplateParseError, VariableToken, tokenize
+from .tokenizer import (
+    AssignmentToken,
+    EndToken,
+    ListToken,
+    TemplateParseError,
+    VariableToken,
+    tokenize,
+)
 
 __all__ = [
     "Template",
@@ -38,7 +45,7 @@ class Template:
     ----------
     template:
         Template string using ``{{ var }}`` / ``{{ var:type }}`` /
-        ``{% var = 'value' %}`` syntax.
+        ``{% var = 'value' %}`` / ``{% list: name %}`` … ``{% end %}`` syntax.
     flexible:
         When *True* (default), whitespace differences between the template
         and the message are ignored.
@@ -54,12 +61,15 @@ class Template:
 
         Each dict has the keys:
 
-        - ``name``      — dotted variable name
+        - ``name``      — dotted variable name (or list block name)
         - ``type``      — coercion type (``"str"``, ``"int"``, ``"float"``,
-          ``"date"``, ``"datetime"``)
-        - ``kind``  — ``"extract"`` for ``{{ var }}`` tokens or
-          ``"static_assign"`` for ``{% var = 'value' %}`` tokens
+          ``"date"``, ``"datetime"``, or ``"list"`` for list blocks)
+        - ``kind``  — ``"extract"`` for ``{{ var }}`` tokens,
+          ``"static_assign"`` for ``{% var = 'value' %}`` tokens, or
+          ``"list"`` for ``{% list: name %}`` blocks
         - ``value`` — present only when ``kind == "static_assign"``
+        - ``fields`` — present only when ``kind == "list"``: list of field
+          descriptors (each with ``name``, ``type``, ``kind``)
 
         Items are returned in template (document) order.
         """
@@ -74,8 +84,9 @@ class Template:
         *stop_on_filled* — list of variable names the caller requires.  The
         engine truncates the template at the rightmost listed variable and
         stops matching there, skipping the rest of the template.  Raises
-        ``ValueError`` if any name is absent from the template; raises
-        :class:`MatchError` if a required variable is not captured.
+        ``ValueError`` if any name is absent from the template or refers to a
+        loop-body variable; raises :class:`MatchError` if a required variable
+        is not captured.
 
         Raises :class:`MatchError` if the message doesn't fit the template.
         Raises :class:`CoercionError` if a typed variable can't be converted.
@@ -85,11 +96,30 @@ class Template:
 
 def _variables(tokens) -> list[dict]:
     result = []
+    current_list: dict | None = None
     for token in tokens:
-        if isinstance(token, VariableToken):
-            result.append({"name": token.name, "type": token.type, "kind": "extract"})
+        if isinstance(token, ListToken):
+            current_list = {
+                "name": token.name,
+                "type": "list",
+                "kind": "list",
+                "fields": [],
+            }
+            result.append(current_list)
+        elif isinstance(token, EndToken):
+            current_list = None
+        elif isinstance(token, VariableToken):
+            if current_list is not None:
+                field_name = token.name[len(current_list["name"]) + 1:]
+                current_list["fields"].append(
+                    {"name": field_name, "type": token.type, "kind": "extract"}
+                )
+            else:
+                result.append({"name": token.name, "type": token.type, "kind": "extract"})
         elif isinstance(token, AssignmentToken):
-            result.append({"name": token.name, "type": token.type, "kind": "static_assign", "value": token.value})
+            result.append(
+                {"name": token.name, "type": token.type, "kind": "static_assign", "value": token.value}
+            )
     return result
 
 

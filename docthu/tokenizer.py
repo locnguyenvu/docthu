@@ -5,6 +5,8 @@ Token types:
   LiteralToken    — static text fragment
   VariableToken   — {{ name }} or {{ name:type }}
   AssignmentToken — {% name = 'value' %} or {% name:type = value %}
+  ListToken       — {% list: name %} opens a repeated-item block
+  EndToken        — {% end %} closes a list block
 """
 
 from __future__ import annotations
@@ -22,12 +24,18 @@ _RE_ASSIGN = re.compile(
     r"(?:'([^']*)'|(-?\d+\.\d+)|(-?\d+)|(true|false))"
     r"\s*%\}"
 )
+# Matches {% list: name %}
+_RE_LIST = re.compile(r"\{%\s*list\s*:\s*(\w+)\s*%\}")
+# Matches {% end %}
+_RE_END = re.compile(r"\{%\s*end\s*%\}")
 # Matches {{ name }} or {{ name:type }}
 _RE_VAR = re.compile(r"\{{\s*([\w.]+)(?::(\w+))?\s*\}\}")
-# Combined scanner — assignment first so it takes priority
+# Combined scanner — list/end first, then assignment, then variable
 _RE_TOKEN = re.compile(
-    r"(\{%\s*[\w.]+(?::\w+)?\s*=\s*(?:'[^']*'|-?\d+\.\d+|-?\d+|true|false)\s*%\})"
-    r"|(\{{\s*[\w.]+(?::\w+)?\s*\}\})"
+    r"(\{%\s*list\s*:\s*\w+\s*%\})"   # group 1: list block
+    r"|(\{%\s*end\s*%\})"              # group 2: end block
+    r"|(\{%\s*[\w.]+(?::\w+)?\s*=\s*(?:'[^']*'|-?\d+\.\d+|-?\d+|true|false)\s*%\})"  # group 3: assignment
+    r"|(\{{\s*[\w.]+(?::\w+)?\s*\}\})"  # group 4: variable
 )
 # Detects any {% ... %} block (used to catch invalid/unsupported syntax)
 _RE_BLOCK_ATTEMPT = re.compile(r"\{%.*?%\}")
@@ -51,19 +59,30 @@ class AssignmentToken:
     type: str = field(default="str")  # coercion type
 
 
+@dataclass
+class ListToken:
+    name: str  # "item" in {% list: item %} — collection key and object prefix
+
+
+@dataclass
+class EndToken:
+    pass
+
+
 class TemplateParseError(Exception):
     pass
 
 
-def tokenize(template: str) -> list[LiteralToken | VariableToken | AssignmentToken]:
+def tokenize(template: str) -> list[LiteralToken | VariableToken | AssignmentToken | ListToken | EndToken]:
     """
     Parse *template* into an ordered list of tokens.
 
     Assignment blocks that occupy an entire line (possibly with surrounding
     whitespace) are consumed together with their newline so they don't leave
-    a blank-line artifact in the adjacent LiteralTokens.
+    a blank-line artifact in the adjacent LiteralTokens.  The same treatment
+    applies to ``{% list: name %}`` and ``{% end %}`` blocks.
     """
-    tokens: list[LiteralToken | VariableToken | AssignmentToken] = []
+    tokens: list[LiteralToken | VariableToken | AssignmentToken | ListToken | EndToken] = []
     pos = 0
     length = len(template)
 
@@ -80,8 +99,41 @@ def tokenize(template: str) -> list[LiteralToken | VariableToken | AssignmentTok
         before = template[pos : m.start()]
 
         if m.group(1):
-            # AssignmentToken — strip its line from the surrounding literals
-            am = _RE_ASSIGN.fullmatch(m.group(1).strip())
+            # ListToken — absorb its line the same way as AssignmentToken
+            lm = _RE_LIST.fullmatch(m.group(1).strip())
+            before_stripped, after_stripped = _absorb_assignment_line(
+                template, pos, m.start(), m.end()
+            )
+            if before_stripped is not None:
+                if before_stripped:
+                    tokens.append(LiteralToken(before_stripped))
+                tokens.append(ListToken(name=lm.group(1)))
+                pos = m.end() + after_stripped
+                continue
+
+            if before:
+                tokens.append(LiteralToken(before))
+            tokens.append(ListToken(name=lm.group(1)))
+
+        elif m.group(2):
+            # EndToken — absorb its line
+            before_stripped, after_stripped = _absorb_assignment_line(
+                template, pos, m.start(), m.end()
+            )
+            if before_stripped is not None:
+                if before_stripped:
+                    tokens.append(LiteralToken(before_stripped))
+                tokens.append(EndToken())
+                pos = m.end() + after_stripped
+                continue
+
+            if before:
+                tokens.append(LiteralToken(before))
+            tokens.append(EndToken())
+
+        elif m.group(3):
+            # AssignmentToken
+            am = _RE_ASSIGN.fullmatch(m.group(3).strip())
             name = am.group(1)
             explicit_type = am.group(2)   # type annotation, may be None
             str_val = am.group(3)         # single-quoted string
@@ -124,9 +176,9 @@ def tokenize(template: str) -> list[LiteralToken | VariableToken | AssignmentTok
                 tokens.append(LiteralToken(before))
             tokens.append(AssignmentToken(name=name, value=value, type=type_))
 
-        elif m.group(2):
+        elif m.group(4):
             # VariableToken
-            vm = _RE_VAR.fullmatch(m.group(2).strip())
+            vm = _RE_VAR.fullmatch(m.group(4).strip())
             name = vm.group(1)
             type_ = vm.group(2) or "str"
             if type_ not in VALID_TYPES:
@@ -140,14 +192,36 @@ def tokenize(template: str) -> list[LiteralToken | VariableToken | AssignmentTok
 
         pos = m.end()
 
-    # Detect {% ... %} blocks that didn't match the assignment pattern
+    # Detect {% ... %} blocks that didn't match any known pattern
     for bm in _RE_BLOCK_ATTEMPT.finditer(template):
         block = bm.group(0)
-        if not _RE_ASSIGN.fullmatch(block.strip()):
+        if not (
+            _RE_ASSIGN.fullmatch(block.strip())
+            or _RE_LIST.fullmatch(block.strip())
+            or _RE_END.fullmatch(block.strip())
+        ):
             raise TemplateParseError(
-                f"Invalid assignment syntax: {block!r}. "
-                "Expected: {{% name = 'value' %}} or {{% name:type = value %}}"
+                f"Invalid block syntax: {block!r}. "
+                "Expected: {{% name = 'value' %}}, {{% list: name %}}, or {{% end %}}"
             )
+
+    # Validate list/end pairing
+    depth = 0
+    for token in tokens:
+        if isinstance(token, ListToken):
+            if depth > 0:
+                raise TemplateParseError(
+                    "Nested {% list: ... %} blocks are not supported"
+                )
+            depth += 1
+        elif isinstance(token, EndToken):
+            if depth == 0:
+                raise TemplateParseError(
+                    "{% end %} without a matching {% list: ... %}"
+                )
+            depth -= 1
+    if depth > 0:
+        raise TemplateParseError("Unclosed {% list: ... %} block (missing {% end %})")
 
     # Validate: no two VariableTokens are adjacent (no literal between them)
     for i in range(len(tokens) - 1):

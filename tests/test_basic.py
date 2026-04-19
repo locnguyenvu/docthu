@@ -346,12 +346,12 @@ def test_assignment_float_literal_type_in_variables():
 # ---------------------------------------------------------------------------
 
 def test_invalid_block_raises():
-    with pytest.raises(TemplateParseError, match="Invalid assignment syntax"):
+    with pytest.raises(TemplateParseError, match="Invalid block syntax"):
         parse("{% invalid syntax here %}\nDate: {{ date }}", "Date: 2024-01-01")
 
 
 def test_block_missing_equals_raises():
-    with pytest.raises(TemplateParseError, match="Invalid assignment syntax"):
+    with pytest.raises(TemplateParseError, match="Invalid block syntax"):
         parse("{% no_equals 'value' %}\nHello", "Hello")
 
 
@@ -427,3 +427,126 @@ def test_stop_on_filled_trailing_static_differs():
     )
     result = parse(template, message, stop_on_filled=["receipt_number"])
     assert result == {"receipt_number": "ABC-999"}
+
+
+# ---------------------------------------------------------------------------
+# 17. {% list: name %} / {% end %} — dynamic list extraction
+# ---------------------------------------------------------------------------
+
+ORDER_TEMPLATE = """\
+Order #{{ order_number }}
+
+Items:
+{% list: item %}
+- {{ item.name }} x{{ item.quantity:int }} - ${{ item.price:float }}
+{% end %}
+Subtotal: ${{ subtotal:float }}
+Total: ${{ total:float }}
+"""
+
+ORDER_MESSAGE_3 = """\
+Order #ORD-12345
+
+Items:
+- Widget A x2 - $9.99
+- Widget B x1 - $24.99
+- Widget C x3 - $4.99
+
+Subtotal: $49.94
+Total: $54.93
+"""
+
+ORDER_MESSAGE_1 = """\
+Order #ORD-00001
+
+Items:
+- Only Thing x1 - $99.00
+
+Subtotal: $99.00
+Total: $99.00
+"""
+
+
+def test_list_basic_multiple_items():
+    result = parse(ORDER_TEMPLATE, ORDER_MESSAGE_3)
+    assert result["order_number"] == "ORD-12345"
+    assert len(result["item"]) == 3
+    assert result["item"][0] == {"name": "Widget A", "quantity": 2, "price": 9.99}
+    assert result["item"][1] == {"name": "Widget B", "quantity": 1, "price": 24.99}
+    assert result["item"][2] == {"name": "Widget C", "quantity": 3, "price": 4.99}
+    assert result["subtotal"] == 49.94
+    assert result["total"] == 54.93
+
+
+def test_list_single_item():
+    result = parse(ORDER_TEMPLATE, ORDER_MESSAGE_1)
+    assert result["order_number"] == "ORD-00001"
+    assert len(result["item"]) == 1
+    assert result["item"][0] == {"name": "Only Thing", "quantity": 1, "price": 99.00}
+
+
+def test_list_zero_items():
+    template = "Items:\n{% list: item %}\n- {{ item.name }}\n{% end %}\nDone"
+    message = "Items:\nDone"
+    result = parse(template, message)
+    assert result["item"] == []
+
+
+def test_list_template_reuse():
+    tpl = Template(ORDER_TEMPLATE)
+    r1 = tpl.match(ORDER_MESSAGE_3)
+    r2 = tpl.match(ORDER_MESSAGE_1)
+    assert len(r1["item"]) == 3
+    assert len(r2["item"]) == 1
+
+
+def test_list_variables_schema():
+    schema = variables(ORDER_TEMPLATE)
+    list_entry = next(e for e in schema if e["kind"] == "list")
+    assert list_entry["name"] == "item"
+    assert list_entry["type"] == "list"
+    fields = {f["name"]: f["type"] for f in list_entry["fields"]}
+    assert fields == {"name": "str", "quantity": "int", "price": "float"}
+
+
+def test_list_with_outer_assignment():
+    template = """\
+{% store = 'ACME' %}
+Receipt:
+{% list: line %}
+{{ line.desc }} ${{ line.amount:float }}
+{% end %}
+"""
+    message = """\
+Receipt:
+Coffee $3.50
+Tea $2.00
+"""
+    result = parse(template, message)
+    assert result["store"] == "ACME"
+    assert len(result["line"]) == 2
+    assert result["line"][0] == {"desc": "Coffee", "amount": 3.50}
+    assert result["line"][1] == {"desc": "Tea", "amount": 2.00}
+
+
+def test_nested_list_raises():
+    with pytest.raises(TemplateParseError, match="Nested"):
+        parse(
+            "{% list: outer %}\n{% list: inner %}\n{{ inner.x }}\n{% end %}\n{% end %}",
+            "anything",
+        )
+
+
+def test_end_without_list_raises():
+    with pytest.raises(TemplateParseError, match="without a matching"):
+        parse("Hello\n{% end %}\nWorld", "Hello World")
+
+
+def test_unclosed_list_raises():
+    with pytest.raises(TemplateParseError, match="Unclosed"):
+        parse("{% list: item %}\n{{ item.x }}", "x")
+
+
+def test_stop_on_filled_rejects_loop_var():
+    with pytest.raises(ValueError, match="loop-body variables"):
+        parse(ORDER_TEMPLATE, ORDER_MESSAGE_3, stop_on_filled=["item.name"])
