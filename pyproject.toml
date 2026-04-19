@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "docthu"
-version = "0.5.3"
+version = "0.6.0"
 description = "Template-based structured data extraction from emails and text messages"
 requires-python = ">=3.10"
 dependencies = ["streamlit>=1.35"]

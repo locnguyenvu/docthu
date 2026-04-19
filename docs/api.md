@@ -69,10 +69,11 @@ Return the variables declared in `template` as a list of JSON-serialisable dicts
 
 | Field | Values | Description |
 |---|---|---|
-| `name` | dotted path string | Variable name as declared in the template |
-| `type` | `str`, `int`, `float`, `date`, `datetime` | Coercion type |
-| `kind` | `extract` \| `static_assign` | `extract` for `{{ var }}` tokens; `static_assign` for `{% var = 'value' %}` tokens |
+| `name` | dotted path string | Variable name (or list block name) as declared in the template |
+| `type` | `str`, `int`, `float`, `date`, `datetime`, `list` | Coercion type (`list` for `{% list: … %}` blocks) |
+| `kind` | `extract` \| `static_assign` \| `list` | `extract` for `{{ var }}`; `static_assign` for `{% var = 'value' %}`; `list` for `{% list: name %}` blocks |
 | `value` | string | Present only when `kind == "static_assign"` — the literal value |
+| `fields` | list of dicts | Present only when `kind == "list"` — field descriptors for items in the list (each has `name`, `type`, `kind`) |
 
 ```python
 from docthu import variables
@@ -116,9 +117,83 @@ variables(template)
 
 Hard-code a field without extracting it. Supports single-quoted strings, int literals, float literals, and `true`/`false`. The field appears in the result dict at the declared name (dotted paths work here too).
 
+### List blocks (dynamic repeated content)
+
+Use `{% list: name %}` … `{% end %}` to extract a variable-length list of structured items — for example, the line items in a shopping order email.
+
+```
+{% list: item %}
+- {{ item.name }} x{{ item.quantity:int }} - ${{ item.price:float }}
+{% end %}
+```
+
+- `item` is the collection name: it becomes a key in the result dict whose value is a `list` of dicts.
+- Variable placeholders inside the block must be prefixed with the collection name (e.g. `item.name`). All standard coercion types are supported.
+- Each item dict contains only the field names relative to the prefix (e.g. `{"name": ..., "quantity": ..., "price": ...}`).
+- Dotted field names are supported: `{{ item.address.city }}` produces `{"address": {"city": ...}}` in each item dict.
+- If no items are found, the collection is set to `[]` (empty list).
+- Nested list blocks raise `TemplateParseError`.
+- `{% list: name %}` and `{% end %}` must each be on their own line; the surrounding blank lines are absorbed automatically.
+
+**Full example:**
+
+Template:
+```
+Order #{{ order_number }}
+
+Items:
+{% list: item %}
+- {{ item.name }} x{{ item.quantity:int }} - ${{ item.price:float }}
+{% end %}
+Subtotal: ${{ subtotal:float }}
+Total: ${{ total:float }}
+```
+
+Message:
+```
+Order #ORD-12345
+
+Items:
+- Widget A x2 - $9.99
+- Widget B x1 - $24.99
+
+Subtotal: $19.98
+Total: $21.98
+```
+
+Result:
+```json
+{
+  "order_number": "ORD-12345",
+  "item": [
+    {"name": "Widget A", "quantity": 2, "price": 9.99},
+    {"name": "Widget B", "quantity": 1, "price": 24.99}
+  ],
+  "subtotal": 19.98,
+  "total": 21.98
+}
+```
+
+**`variables()` schema for list blocks:**
+
+```python
+{
+    "name": "item",
+    "type": "list",
+    "kind": "list",
+    "fields": [
+        {"name": "name",     "type": "str",   "kind": "extract"},
+        {"name": "quantity", "type": "int",   "kind": "extract"},
+        {"name": "price",    "type": "float", "kind": "extract"},
+    ]
+}
+```
+
 ### Constraints
 
-Two variable placeholders cannot be adjacent — there must be at least one literal character between them. Violating this raises `TemplateParseError`.
+- Two variable placeholders cannot be adjacent — there must be at least one literal character between them. Violating this raises `TemplateParseError`.
+- Nested `{% list: … %}` blocks are not supported.
+- `stop_on_filled` cannot reference loop-body variables — raises `ValueError`.
 
 ---
 
